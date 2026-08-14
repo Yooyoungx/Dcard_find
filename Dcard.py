@@ -12,8 +12,8 @@ KEYWORDS = ["代購", "代買", "分攤", "負擔", "不拆賣",
 CHECK_INTERVAL = 60
 
 # 📱 Telegram 設定
-TELEGRAM_BOT_TOKEN = "8322399509:AAF0tsylOIbn4BdRIniarNvarLUdOO4hgyk"
-TELEGRAM_CHAT_ID = "-5259432856"
+TELEGRAM_BOT_TOKEN = ""
+TELEGRAM_CHAT_ID = ""
 
 logging.basicConfig(
     level=logging.INFO,
