@@ -7,6 +7,13 @@ import nodriver as uc
 FORUM_URL = "https://www.dcard.tw/f/tickets?tab=latest"
 LIST_API_URL = "https://www.dcard.tw/service/api/v2/forums/tickets/posts?popular=false&limit=3"
 
+JS_GET_LINKS = (
+    "Array.from(document.querySelectorAll('a[href*=\"/f/tickets/p/\"]'))"
+    ".slice(0, 5)"
+    ".map(a => a.innerText.replace(/\\s+/g, ' ').trim() + ' -> ' + a.getAttribute('href'))"
+    ".join('\\n')"
+)
+
 
 def diagnose_chrome(chrome_path: str):
     print("\n=== [診斷] 檢查 Chrome 底層錯誤訊息 ===")
@@ -102,5 +109,23 @@ async def main():
         )
         print(f"頁面文字預覽:\n{body_preview}\n")
 
-        links = await page.evaluate(
-            """
+        links = await page.evaluate(JS_GET_LINKS)
+        if links:
+            print(f"✅ DOM 成功抓到看板文章連結:\n{links}\n")
+        else:
+            print("❌ DOM 未發現文章連結\n")
+
+        print("=== [測試 2] 同個瀏覽器 Session 直接讀取列表 API ===")
+        await page.get(LIST_API_URL)
+        await asyncio.sleep(3)
+        api_text = await page.evaluate(
+            "document.body ? document.body.innerText.slice(0, 400) : ''"
+        )
+        print(f"API 回應前 400 字:\n{api_text}")
+
+    finally:
+        browser.stop()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
