@@ -1,67 +1,64 @@
-import time
-from curl_cffi import requests
+import asyncio
+import nodriver as uc
 
-LIST_URL = "https://www.dcard.tw/service/api/v2/forums/tickets/posts?popular=false&limit=5"
 FORUM_URL = "https://www.dcard.tw/f/tickets?tab=latest"
-POST_URL_TMPL = "https://www.dcard.tw/service/api/v2/posts/{post_id}"
-
-HEADERS = {
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Referer": FORUM_URL,
-}
+LIST_API_URL = "https://www.dcard.tw/service/api/v2/forums/tickets/posts?popular=false&limit=3"
 
 
-def inspect_error(resp):
-    print(f"  HTTP 狀態碼: {resp.status_code}")
-    print(f"  Server: {resp.headers.get('server')} | CF-Ray: {resp.headers.get('cf-ray')}")
-    print(f"  回應片段: {resp.text[:200]!r}")
+async def main():
+    browser = await uc.start(
+        headless=False,
+        sandbox=False,
+        browser_args=[
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--window-size=1280,800",
+            "--lang=zh-TW",
+        ],
+    )
 
+    try:
+        print("=== [測試 1] 真實 Chrome 開啟看板主頁 ===")
+        page = await browser.get(FORUM_URL)
+        await asyncio.sleep(8)
 
-def main():
-    session = requests.Session(impersonate="chrome")
+        title = await page.evaluate("document.title")
+        print(f"初次網頁標題: {title!r}")
 
-    print("=== [測試 1] 直連 tickets 板最新文章列表 API ===")
-    resp = session.get(LIST_URL, headers=HEADERS, timeout=20)
+        # 若遇到 Cloudflare 轉圈驗證，多等 10 秒看能否自動通過
+        if title and any(k in title for k in ["Just a moment", "請稍候", "Attention"]):
+            print("偵測到 Cloudflare 頁面，等待 10 秒後重檢...")
+            await asyncio.sleep(10)
+            title = await page.evaluate("document.title")
+            print(f"等待後標題: {title!r}")
 
-    if resp.status_code != 200:
-        print("❌ 直連列表失敗：")
-        inspect_error(resp)
+        body_preview = await page.evaluate(
+            "document.body ? document.body.innerText.slice(0, 250) : ''"
+        )
+        print(f"頁面文字預覽:\n{body_preview}\n")
 
-        print("\n=== [測試 1B] 先訪問看板主頁取 Cookie 後重試 ===")
-        page_resp = session.get(FORUM_URL, timeout=20)
-        print(f"  主頁狀態碼: {page_resp.status_code} | 取得 Cookies: {list(session.cookies.keys())}")
-        time.sleep(2)
-        resp = session.get(LIST_URL, headers=HEADERS, timeout=20)
+        links = await page.evaluate(
+            """Array.from(document.querySelectorAll('a[href*="/f/tickets/p/"]'))
+               .slice(0, 5)
+               .map(a => a.innerText.replace(/\\s+/g, ' ').trim() + ' -> ' + a.getAttribute('href'))
+               .join('\\n')"""
+        )
+        if links:
+            print(f"✅ DOM 成功抓到看板文章連結:\n{links}\n")
+        else:
+            print("❌ DOM 未發現文章連結\n")
 
-    if resp.status_code != 200:
-        print("❌ 重試列表仍失敗（Cloudflare 強制驗證，需改用瀏覽器核心或代理）：")
-        inspect_error(resp)
-        return
+        print("=== [測試 2] 同個瀏覽器 Session 直接讀取列表 API ===")
+        await page.get(LIST_API_URL)
+        await asyncio.sleep(3)
+        api_text = await page.evaluate(
+            "document.body ? document.body.innerText.slice(0, 400) : ''"
+        )
+        print(f"API 回應前 400 字:\n{api_text}")
 
-    posts = resp.json()
-    print(f"✅ 列表抓取成功！共取得 {len(posts)} 篇文章：")
-    for p in posts[:3]:
-        print(f"  - ID: {p.get('id')} | 標題: {p.get('title')}")
-
-    if not posts:
-        return
-
-    first_id = posts[0]["id"]
-    print(f"\n=== [測試 2] 抓取單篇全文 API (ID: {first_id}) ===")
-    time.sleep(2)
-    detail_resp = session.get(POST_URL_TMPL.format(post_id=first_id), headers=HEADERS, timeout=20)
-
-    if detail_resp.status_code != 200:
-        print("❌ 單篇全文抓取失敗：")
-        inspect_error(detail_resp)
-        return
-
-    detail = detail_resp.json()
-    content = detail.get("content", "")
-    print(f"✅ 全文抓取成功！內文總字數: {len(content)}")
-    print(f"  內文前 60 字預覽: {content[:60]!r}")
+    finally:
+        browser.stop()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
